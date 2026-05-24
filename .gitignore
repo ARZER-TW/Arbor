@@ -1,0 +1,18 @@
+# Sui vendor symlinks (managed by /sui-pin-versions)
+vendor/
+
+# Build artifacts
+build/
+target/
+dist/
+*.mv
+
+# Node
+node_modules/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
