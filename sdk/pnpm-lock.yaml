@@ -11,6 +11,9 @@ importers:
       '@mysten/sui':
         specifier: ^2.12.0
         version: 2.17.0(typescript@5.9.3)
+      '@mysten/walrus':
+        specifier: ^1.1.7
+        version: 1.1.7(@mysten/sui@2.17.0(typescript@5.9.3))
     devDependencies:
       '@types/node':
         specifier: ^25.9.1
@@ -377,6 +380,14 @@ packages:
   '@mysten/utils@0.3.3':
     resolution: {integrity: sha512-gVHn5toh24eXXLEyBknwwM2F/tbDgqPX0yj77KtHjuoYUallcQ9vSwGfGsAy39IcTB259Yprt/ZOEwdup+zrpA==}
 
+  '@mysten/walrus-wasm@0.2.2':
+    resolution: {integrity: sha512-MbI1OAYvnlcdYo3hhSPgMra4Loiox32gI13aP+EpC1pjVxkIRnINzM2FcUgu1PIrl/L49O6f+latQm0vcCGXiQ==}
+
+  '@mysten/walrus@1.1.7':
+    resolution: {integrity: sha512-9hymg7JJmvAvUFFbsOAGcKD47Td/lfdyBgxmI6um65n0M8qnJIll44mvnNX/QKIyN3wRfFb2wE/odRLLy3HKMw==}
+    peerDependencies:
+      '@mysten/sui': ^2.16.2
+
   '@noble/curves@2.2.0':
     resolution: {integrity: sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ==}
     engines: {node: '>= 20.19.0'}
@@ -588,6 +599,9 @@ packages:
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
+
+  dataloader@2.2.3:
+    resolution: {integrity: sha512-y2krtASINtPFS1rSDjacrFgn1dcUuoREVabwlOGOe4SdxenREqwjwjElAdwvbGM7kgZz9a3KVicWR7vcz8rnzA==}
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -1100,6 +1114,16 @@ snapshots:
     dependencies:
       '@scure/base': 2.2.0
 
+  '@mysten/walrus-wasm@0.2.2': {}
+
+  '@mysten/walrus@1.1.7(@mysten/sui@2.17.0(typescript@5.9.3))':
+    dependencies:
+      '@mysten/bcs': 2.0.5
+      '@mysten/sui': 2.17.0(typescript@5.9.3)
+      '@mysten/utils': 0.3.3
+      '@mysten/walrus-wasm': 0.2.2
+      dataloader: 2.2.3
+
   '@noble/curves@2.2.0':
     dependencies:
       '@noble/hashes': 2.2.0
@@ -1277,6 +1301,8 @@ snapshots:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+
+  dataloader@2.2.3: {}
 
   debug@4.4.3:
     dependencies:

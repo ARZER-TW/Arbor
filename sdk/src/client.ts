@@ -7,6 +7,8 @@ import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
 import type { Signer } from '@mysten/sui/cryptography';
+import { HttpWalrusStore } from './walrus.js';
+import type { WalrusStore, WriteOptions } from './walrus.js';
 
 export type Network = 'mainnet' | 'testnet' | 'devnet' | 'localnet';
 
@@ -21,6 +23,8 @@ export interface ArborClientOptions {
   packageId: string;
   /** Provide a pre-built client (e.g. dapp-kit's) instead of constructing one. */
   client?: SuiJsonRpcClient;
+  /** Storage backend for artifact content. Defaults to the public HTTP gateway. */
+  walrus?: WalrusStore;
 }
 
 export interface CreateRepositoryArgs {
@@ -75,6 +79,42 @@ export interface TimelineEvent {
   data: Record<string, unknown>;
 }
 
+export interface CommitContentArgs {
+  repoId: string;
+  branch: string;
+  content: Uint8Array | string;
+  kind: string;
+  message: string;
+  metadata?: Uint8Array | string | null;
+  write?: WriteOptions;
+}
+
+export interface ArtifactNodeView {
+  id: string;
+  repo: string;
+  blobId: bigint;
+  parents: string[];
+  creator: string;
+  createdAtMs: number;
+  kind: string;
+  message: string;
+  metadataBlobId: bigint | null;
+}
+
+export interface NodeDiffSide {
+  nodeId: string;
+  blobId: bigint;
+  content: Uint8Array;
+  text: string;
+}
+
+export interface NodeDiff {
+  a: NodeDiffSide;
+  b: NodeDiffSide;
+  /** True when both nodes reference the same Walrus blob (content-addressed). */
+  identical: boolean;
+}
+
 /**
  * ArborClient — typed wrapper over the Arbor Move package.
  *
@@ -85,6 +125,7 @@ export interface TimelineEvent {
 export class ArborClient {
   readonly client: SuiJsonRpcClient;
   readonly packageId: string;
+  readonly walrus: WalrusStore;
 
   constructor(opts: ArborClientOptions) {
     this.client =
@@ -94,6 +135,7 @@ export class ArborClient {
         network: opts.network,
       });
     this.packageId = opts.packageId;
+    this.walrus = opts.walrus ?? new HttpWalrusStore();
   }
 
   private target(module: string, fn: string): `${string}::${string}::${string}` {
@@ -283,6 +325,76 @@ export class ArborClient {
     return out;
   }
 
+  // === content (Walrus) ===
+
+  /** Read a frozen ArtifactNode's on-chain fields. */
+  async getNode(nodeId: string): Promise<ArtifactNodeView> {
+    const obj = await this.client.getObject({
+      id: nodeId,
+      options: { showContent: true },
+    });
+    const content = obj.data?.content;
+    if (!content || content.dataType !== 'moveObject') {
+      throw new Error(`node ${nodeId} not found or not a Move object`);
+    }
+    const f = content.fields as Record<string, any>;
+    return {
+      id: nodeId,
+      repo: f.repo as string,
+      blobId: BigInt(f.blob_id),
+      parents: (f.parents ?? []) as string[],
+      creator: f.creator as string,
+      createdAtMs: Number(f.created_at_ms),
+      kind: f.kind as string,
+      message: f.message as string,
+      metadataBlobId: parseOptionU256(f.metadata_blob_id),
+    };
+  }
+
+  /** Upload content to Walrus, then commit the resulting blob id onto `branch`. */
+  async commitContent(args: CommitContentArgs, signer: Signer) {
+    const blobId = await this.walrus.write(toBytes(args.content), args.write);
+    let metadataBlobId: bigint | null = null;
+    if (args.metadata != null) {
+      metadataBlobId = await this.walrus.write(toBytes(args.metadata), args.write);
+    }
+    const res = await this.commit(
+      {
+        repoId: args.repoId,
+        branch: args.branch,
+        blobId,
+        kind: args.kind,
+        message: args.message,
+        metadataBlobId,
+      },
+      signer,
+    );
+    return { ...res, blobId };
+  }
+
+  /** Fetch the Walrus content referenced by a node. */
+  async readNodeContent(nodeId: string): Promise<Uint8Array> {
+    const node = await this.getNode(nodeId);
+    return this.walrus.read(node.blobId);
+  }
+
+  /** Compare two artifact nodes by content. `identical` uses content-addressing. */
+  async diff(aId: string, bId: string): Promise<NodeDiff> {
+    const [a, b] = await Promise.all([this.diffSide(aId), this.diffSide(bId)]);
+    return { a, b, identical: a.blobId === b.blobId };
+  }
+
+  private async diffSide(nodeId: string): Promise<NodeDiffSide> {
+    const node = await this.getNode(nodeId);
+    const content = await this.walrus.read(node.blobId);
+    return {
+      nodeId,
+      blobId: node.blobId,
+      content,
+      text: new TextDecoder().decode(content),
+    };
+  }
+
   private run(tx: Transaction, signer: Signer): Promise<SuiTransactionBlockResponse> {
     return this.client.signAndExecuteTransaction({
       transaction: tx,
@@ -298,4 +410,21 @@ function eventJson(
 ): Record<string, any> | undefined {
   const e = resp.events?.find((ev) => ev.type.endsWith(typeSuffix));
   return e?.parsedJson as Record<string, any> | undefined;
+}
+
+function toBytes(content: Uint8Array | string): Uint8Array {
+  return typeof content === 'string' ? new TextEncoder().encode(content) : content;
+}
+
+/** Parse a Move `Option<u256>` from parsed object content (value, {vec:[...]}, or null). */
+function parseOptionU256(v: unknown): bigint | null {
+  if (v == null) return null;
+  if (typeof v === 'object' && Array.isArray((v as { vec?: unknown[] }).vec)) {
+    const vec = (v as { vec: unknown[] }).vec;
+    return vec.length > 0 ? BigInt(vec[0] as string) : null;
+  }
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint') {
+    return BigInt(v);
+  }
+  return null;
 }
