@@ -8,31 +8,41 @@
  *   Reporter - consolidates into the final report    (proposes merge to main)
  * Analyst approves (a proposer cannot self-approve), Reporter executes.
  *
- * Run:  ARBOR_TEST_MNEMONIC="<12 words>" pnpm tsx examples/scenario-a.ts
+ * Content is produced by Claude when ANTHROPIC_API_KEY is set (real AI agents),
+ * and falls back to canned text otherwise so the demo always runs. Each agent
+ * builds on the previous agent's output — a genuine pipeline.
  *
- * Content here is deterministic so the demo always runs. `generate()` is the
- * single seam to swap in real LLM-backed agents (Claude API) later.
+ * Run:  ARBOR_TEST_MNEMONIC="<12 words>" [ANTHROPIC_API_KEY=...] pnpm tsx examples/scenario-a.ts
  */
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
 import { ArborClient } from '../src/index.js';
+import { generate, llmAvailable, modelName, type Role } from './llm.js';
 
 const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
 const WRITE = { epochs: 10, permanent: true };
+const TARGET = 'LendingProtocolX, a Sui lending market';
 
-// --- agent "thinking" (deterministic stand-in for an LLM call) ---
-function generate(role: 'root' | 'hunter' | 'analyst' | 'reporter'): string {
-  switch (role) {
-    case 'root':
-      return '# Risk Review Scope\nTarget: LendingProtocolX (testnet)\nGoal: assess solvency and security risks before integration.\n';
-    case 'hunter':
-      return '# Surface Scan (Hunter)\nSuspected risks:\n1. Unbounded mint in admin module\n2. Oracle price lacks staleness check\n3. Liquidation threshold updatable without timelock\n';
-    case 'analyst':
-      return '# Deep Analysis (Analyst)\n## R1 Unbounded mint\nSeverity: CRITICAL — admin can mint without a cap.\n## R2 Oracle staleness\nSeverity: HIGH — stale price enables underpriced liquidations.\n## R3 Liquidation timelock\nSeverity: MEDIUM — instant threshold changes risk cascades.\n';
-    case 'reporter':
-      return '# Final Risk Report (Reporter)\nProtocol: LendingProtocolX\nOverall: HIGH RISK\n\nFindings:\n- CRITICAL: unbounded mint (R1)\n- HIGH: oracle staleness (R2)\n- MEDIUM: liquidation timelock (R3)\n\nRecommendation: do not integrate until R1 is fixed.\n';
+// Deterministic fallback used when no ANTHROPIC_API_KEY is present.
+const CANNED: Record<Role, string> = {
+  hunter:
+    '# Surface Scan (Hunter)\nSuspected risks:\n1. Unbounded mint in admin module\n2. Oracle price lacks staleness check\n3. Liquidation threshold updatable without timelock\n',
+  analyst:
+    '# Deep Analysis (Analyst)\n## R1 Unbounded mint\nSeverity: CRITICAL — admin can mint without a cap.\n## R2 Oracle staleness\nSeverity: HIGH — stale price enables underpriced liquidations.\n## R3 Liquidation timelock\nSeverity: MEDIUM — instant threshold changes risk cascades.\n',
+  reporter:
+    '# Final Risk Report (Reporter)\nProtocol: LendingProtocolX\nOverall: HIGH RISK\n\nFindings:\n- CRITICAL: unbounded mint (R1)\n- HIGH: oracle staleness (R2)\n- MEDIUM: liquidation timelock (R3)\n\nRecommendation: do not integrate until R1 is fixed.\n',
+};
+
+async function produce(role: Role, context: string): Promise<string> {
+  if (llmAvailable()) {
+    try {
+      return await generate(role, context);
+    } catch (e) {
+      console.warn(`  LLM ${role} failed, using canned content:`, String(e));
+    }
   }
+  return CANNED[role];
 }
 
 async function main() {
@@ -51,6 +61,7 @@ async function main() {
     reporter: reporter.toSuiAddress(),
   };
   console.log('agents:', addr);
+  console.log('content:', llmAvailable() ? `Claude (${modelName()})` : 'canned fallback');
 
   // Fund all three agents in one transaction from the funder.
   const fund = new Transaction();
@@ -82,28 +93,34 @@ async function main() {
   await arbor.client.waitForTransaction({ digest: repo.digest });
   console.log('\nrepo:', repo.repoId);
 
-  // Hunter commits the surface scan to main.
+  // Hunter scans and commits the surface scan to main.
+  const hunterText = await produce('hunter', `Target protocol: ${TARGET}. Produce your surface scan.`);
   const scan = await arbor.commitContent(
-    { repoId: repo.repoId, branch: 'main', content: generate('hunter'), kind: 'report', message: 'surface scan', write: WRITE },
+    { repoId: repo.repoId, branch: 'main', content: hunterText, kind: 'report', message: 'surface scan', write: WRITE },
     hunter,
   );
   await arbor.client.waitForTransaction({ digest: scan.digest });
   console.log('Hunter   commit main    ->', scan.nodeId);
 
-  // Analyst forks `analyst` and commits the deep dive.
+  // Analyst forks `analyst`, builds on Hunter's scan, and commits the deep dive.
   const fk = await arbor.fork({ repoId: repo.repoId, source: 'main', newBranch: 'analyst' }, analyst);
   await arbor.client.waitForTransaction({ digest: fk.digest });
+  const analystText = await produce('analyst', `Surface scan from Hunter:\n\n${hunterText}\n\nProduce your deep analysis.`);
   const ana = await arbor.commitContent(
-    { repoId: repo.repoId, branch: 'analyst', content: generate('analyst'), kind: 'analysis', message: 'deep dive', write: WRITE },
+    { repoId: repo.repoId, branch: 'analyst', content: analystText, kind: 'analysis', message: 'deep dive', write: WRITE },
     analyst,
   );
   await arbor.client.waitForTransaction({ digest: ana.digest });
   console.log('Analyst  commit analyst ->', ana.nodeId);
 
-  // Reporter proposes a merge into main with the consolidated report (multi-parent).
+  // Reporter consolidates both into the final report and proposes the merge (multi-parent).
   const mainTip = await arbor.getBranchTip(repo.repoId, 'main');
   const analystTip = await arbor.getBranchTip(repo.repoId, 'analyst');
-  const blobId = await arbor.walrus.write(new TextEncoder().encode(generate('reporter')), WRITE);
+  const reporterText = await produce(
+    'reporter',
+    `Surface scan:\n${hunterText}\n\nDeep analysis:\n${analystText}\n\nProduce the final consolidated risk report.`,
+  );
+  const blobId = await arbor.walrus.write(new TextEncoder().encode(reporterText), WRITE);
   const mr = await arbor.proposeMerge(
     {
       repoId: repo.repoId,
@@ -126,7 +143,6 @@ async function main() {
   await arbor.client.waitForTransaction({ digest: ex.digest });
   console.log('Reporter execute merge  -> main now', ex.nodeId);
 
-  // Show the provenance timeline and the final report.
   const tl = await arbor.getTimeline(repo.repoId);
   console.log(`\nprovenance timeline (${tl.length} events):`);
   for (const e of tl) console.log('  -', e.type.split('::').slice(-1)[0]);

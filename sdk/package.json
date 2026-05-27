@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.99.0",
     "@mysten/sui": "^2.12.0",
     "@mysten/walrus": "^1.1.7"
   },
