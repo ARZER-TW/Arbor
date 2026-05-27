@@ -29,7 +29,7 @@ export async function uploadBlob(
 
   const res = await fetch(`${PUBLISHER_TESTNET}/v1/blobs?${params}`, {
     method: 'PUT',
-    body: data,
+    body: data as BodyInit,
   });
   const json = await res.json();
   const created = json.newlyCreated?.blobObject ?? json.alreadyCertified?.blobObject;
@@ -43,5 +43,8 @@ export async function uploadBlob(
 
 export async function downloadBlob(blobId: string): Promise<Uint8Array> {
   const res = await fetch(`${AGGREGATOR_TESTNET}/v1/blobs/${blobId}`);
+  if (!res.ok) {
+    throw new Error(`Walrus read failed (${res.status}) for blob ${blobId}`);
+  }
   return new Uint8Array(await res.arrayBuffer());
 }

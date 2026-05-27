@@ -19,7 +19,7 @@ import { ArborClient } from '../src/index.js';
 
 const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
-const WRITE = { epochs: 2, permanent: false };
+const WRITE = { epochs: 10, permanent: true };
 
 // --- agent "thinking" (deterministic stand-in for an LLM call) ---
 function generate(role: 'root' | 'hunter' | 'analyst' | 'reporter'): string {
