@@ -4,15 +4,25 @@ import {
   SuiClientProvider,
   WalletProvider,
   createNetworkConfig,
+  useCurrentAccount,
+  useSignAndExecuteTransaction,
 } from '@mysten/dapp-kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { Transaction } from '@mysten/sui/transactions';
 import '@mysten/dapp-kit/dist/index.css';
 import './styles.css';
 import {
   DEMO_REPO,
+  PENDING_REPO,
+  MR_STATUS,
+  buildApproveTx,
+  buildExecuteMergeTx,
+  readClient,
+  readMergeRequests,
   readNodeText,
   readTimeline,
   type EntryKind,
+  type MergeRequestView,
   type NodeView,
   type TimelineEntry,
 } from './lib/arbor';
@@ -39,37 +49,39 @@ type Content =
   | { status: 'err'; error: string };
 
 function Viewer() {
+  const account = useCurrentAccount();
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+
   const [repoInput, setRepoInput] = useState(DEMO_REPO);
   const [repoId, setRepoId] = useState(DEMO_REPO);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [mrs, setMrs] = useState<MergeRequestView[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picks, setPicks] = useState<string[]>([]);
   const [contents, setContents] = useState<Record<string, Content>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  async function load(id: string) {
     setLoading(true);
     setError(null);
+    try {
+      const [t, m] = await Promise.all([readTimeline(id), readMergeRequests(id)]);
+      setTimeline(t);
+      setMrs(m);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
     setPicks([]);
     setContents({});
-    readTimeline(repoId).then(
-      (t) => {
-        if (!cancelled) {
-          setTimeline(t);
-          setLoading(false);
-        }
-      },
-      (e) => {
-        if (!cancelled) {
-          setError(String(e));
-          setLoading(false);
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
+    setActionErr(null);
+    void load(repoId);
   }, [repoId]);
 
   useEffect(() => {
@@ -83,11 +95,30 @@ function Viewer() {
   }, [picks, contents]);
 
   const togglePick = (id: string) =>
-    setPicks((prev) => {
-      if (prev.includes(id)) return prev.filter((p) => p !== id);
-      if (prev.length < 2) return [...prev, id];
-      return [prev[1], id];
-    });
+    setPicks((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id],
+    );
+
+  async function act(mrId: string, tx: Transaction) {
+    setBusy(mrId);
+    setActionErr(null);
+    try {
+      const res = await signAndExecute({ transaction: tx });
+      await readClient.waitForTransaction({ digest: res.digest });
+      await load(repoId);
+    } catch (e) {
+      setActionErr(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const openMrs = mrs.filter((m) => m.status !== MR_STATUS.MERGED);
+
+  const loadRepo = (id: string) => {
+    setRepoInput(id);
+    setRepoId(id);
+  };
 
   return (
     <div className="app">
@@ -106,10 +137,61 @@ function Viewer() {
           spellCheck={false}
           placeholder="Repository object id (0x…)"
         />
-        <button className="btn" onClick={() => setRepoId(repoInput.trim())}>
+        <button className="btn" onClick={() => loadRepo(repoInput.trim())}>
           Load
         </button>
+        <button className="btn ghost" onClick={() => loadRepo(PENDING_REPO)}>
+          Review demo
+        </button>
       </div>
+
+      {openMrs.length > 0 && (
+        <section className="panel mr-panel">
+          <h2>Merge requests</h2>
+          {openMrs.map((mr) => {
+            const isProposer = account?.address === mr.proposer;
+            const ready = mr.status === MR_STATUS.READY;
+            return (
+              <div className="mr-row" key={mr.id}>
+                <div className="mr-info">
+                  <span className={`tag-state ${ready ? 'ready' : 'pending'}`}>{ready ? 'ready' : 'pending'}</span>
+                  <span className="chip">→ {mr.targetBranch}</span>
+                  <span className="kv mono">
+                    by {short(mr.proposer)} · {mr.approvals.length} approval{mr.approvals.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="mr-actions">
+                  <button className="btn ghost" onClick={() => togglePick(mr.mergedNode)}>
+                    Review result
+                  </button>
+                  {!ready ? (
+                    <button
+                      className="btn"
+                      disabled={!account || isProposer || busy === mr.id}
+                      onClick={() => act(mr.id, buildApproveTx(repoId, mr.id))}
+                    >
+                      {busy === mr.id ? '…' : 'Approve'}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn"
+                      disabled={!account || busy === mr.id}
+                      onClick={() => act(mr.id, buildExecuteMergeTx(repoId, mr.id))}
+                    >
+                      {busy === mr.id ? '…' : 'Execute merge'}
+                    </button>
+                  )}
+                </div>
+                {!ready && !account && <div className="hint">connect a wallet to approve</div>}
+                {!ready && isProposer && (
+                  <div className="hint">proposer can't self-approve — connect a different writer</div>
+                )}
+              </div>
+            );
+          })}
+          {actionErr && <div className="err">{actionErr}</div>}
+        </section>
+      )}
 
       <div className="grid">
         <section className="panel">
@@ -155,9 +237,7 @@ function Viewer() {
         <section className="panel viewer">
           <h2>{picks.length === 2 ? 'Diff' : 'Artifact'}</h2>
           {picks.length === 0 && (
-            <div className="empty">
-              Click a node to view its content. Pick two to diff them.
-            </div>
+            <div className="empty">Click a node to view its content. Pick two to diff them.</div>
           )}
           {picks.length === 2 && <DiffHead a={contents[picks[0]]} b={contents[picks[1]]} />}
           <div className={picks.length === 2 ? 'panes' : 'single'}>
@@ -179,7 +259,9 @@ function DiffHead({ a, b }: { a?: Content; b?: Content }) {
       <span className={`tag-state ${identical ? 'same' : 'diff'}`}>
         {identical ? 'identical (same Walrus blob)' : 'different content'}
       </span>
-      <span className="kv mono">{identical ? 'content-addressed dedup' : `${short(a.node.id)} vs ${short(b.node.id)}`}</span>
+      <span className="kv mono">
+        {identical ? 'content-addressed dedup' : `${short(a.node.id)} vs ${short(b.node.id)}`}
+      </span>
     </div>
   );
 }

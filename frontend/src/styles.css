@@ -70,7 +70,15 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .tag-id { font-size: 28px; }
 .same { background: var(--commit); color: #07120c; }
 .diff { background: var(--propose); color: #07120c; }
+.ready { background: var(--commit); color: #07120c; }
+.pending { background: var(--propose); color: #07120c; }
 .tag-state { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+
+.mr-panel { margin-bottom: 16px; }
+.mr-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.mr-row:first-of-type { border-top: 0; }
+.mr-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mr-actions { display: flex; gap: 8px; }
 
 .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .pane { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }

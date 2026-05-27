@@ -10,6 +10,11 @@ export const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
 export const DEMO_REPO =
   '0x0ee348ef290038d45424cb4921cd84acb14080c3ddb4d8f9701ecd518bfb5808';
+// A repo left with a pending merge request, to exercise the approve / execute flow.
+export const PENDING_REPO =
+  '0x63cb18e2af9e4c29aea917023996b04622f0da59effa6f70fe00c053530637ab';
+
+export const MR_STATUS = { PENDING: 0, READY: 1, MERGED: 2 } as const;
 
 export const readClient = new SuiJsonRpcClient({
   url: getJsonRpcFullnodeUrl('testnet'),
@@ -106,6 +111,49 @@ export async function readNodeText(nodeId: string): Promise<{ node: NodeView; te
     }
   }
   throw lastErr;
+}
+
+export interface MergeRequestView {
+  id: string;
+  targetBranch: string;
+  mergedNode: string;
+  proposer: string;
+  status: number; // 0 pending, 1 ready, 2 merged
+  approvals: string[];
+  createdAtMs: number;
+}
+
+export async function readMergeRequests(repoId: string): Promise<MergeRequestView[]> {
+  const page = await readClient.queryEvents({
+    query: { MoveModule: { package: PACKAGE_ID, module: 'merge' } },
+    order: 'descending',
+    limit: 200,
+  });
+  const ids = new Set<string>();
+  for (const e of page.data) {
+    if (!e.type.endsWith('::MergeProposed')) continue;
+    const d = (e.parsedJson ?? {}) as Record<string, any>;
+    if (d.repo === repoId && d.mr_id) ids.add(d.mr_id as string);
+  }
+  const out: MergeRequestView[] = [];
+  for (const id of ids) {
+    const obj = await readClient.getObject({ id, options: { showContent: true } });
+    const c = obj.data?.content;
+    if (!c || c.dataType !== 'moveObject') continue;
+    const f = c.fields as Record<string, any>;
+    const approvals = (f.approvals?.fields?.contents ?? f.approvals?.contents ?? []) as string[];
+    out.push({
+      id,
+      targetBranch: f.target_branch as string,
+      mergedNode: f.merged_node as string,
+      proposer: f.proposer as string,
+      status: Number(f.status),
+      approvals,
+      createdAtMs: Number(f.created_at_ms),
+    });
+  }
+  out.sort((a, b) => a.createdAtMs - b.createdAtMs);
+  return out;
 }
 
 export function buildApproveTx(repoId: string, mergeRequestId: string): Transaction {
