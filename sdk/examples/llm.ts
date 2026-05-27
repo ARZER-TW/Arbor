@@ -1,17 +1,29 @@
 /**
- * LLM-backed content generation for the demo agents. If ANTHROPIC_API_KEY is
- * set, each agent's artifact is produced by Claude with a role-specific system
- * prompt; callers fall back to canned content when no key is present, so the
- * demo always runs. This is the single seam that turns the scripted agents into
- * real, functional AI agents.
+ * LLM-backed content generation for the demo agents. Provider is selected by
+ * which API key is present in the environment:
+ *   GEMINI_API_KEY (or GOOGLE_API_KEY) -> Gemini   (free tier — good for demos)
+ *   ANTHROPIC_API_KEY                  -> Claude
+ *   neither                            -> caller falls back to canned content
  *
- * Override the model with ARBOR_LLM_MODEL (e.g. claude-haiku-4-5 for speed/cost).
+ * The role system prompts and the agent pipeline are provider-agnostic; this is
+ * the single seam that turns the scripted agents into real, functional AI agents.
+ *
+ * Model overrides: ARBOR_GEMINI_MODEL (default gemini-2.5-flash),
+ *                  ARBOR_LLM_MODEL    (default claude-opus-4-7).
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI } from '@google/genai';
 
 export type Role = 'hunter' | 'analyst' | 'reporter';
+export type Provider = 'gemini' | 'claude' | 'none';
 
-const MODEL = process.env.ARBOR_LLM_MODEL ?? 'claude-opus-4-7';
+const GEMINI_KEY = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+
+const GEMINI_MODEL = process.env.ARBOR_GEMINI_MODEL ?? 'gemini-2.5-flash';
+const CLAUDE_MODEL = process.env.ARBOR_LLM_MODEL ?? 'claude-opus-4-7';
+
+const MAX_OUTPUT_TOKENS = 2048;
 
 const SYSTEM: Record<Role, string> = {
   hunter:
@@ -22,19 +34,38 @@ const SYSTEM: Record<Role, string> = {
     'You are Reporter. Given a surface scan and a deep analysis, consolidate a final risk report: an overall risk rating, the findings ranked by severity, and a one-line integration recommendation. Begin with a "# Final Risk Report (Reporter)" heading. Concise markdown, no preamble.',
 };
 
+export function provider(): Provider {
+  if (GEMINI_KEY) return 'gemini';
+  if (ANTHROPIC_KEY) return 'claude';
+  return 'none';
+}
+
 export function llmAvailable(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return provider() !== 'none';
 }
 
 export function modelName(): string {
-  return MODEL;
+  const p = provider();
+  if (p === 'gemini') return GEMINI_MODEL;
+  if (p === 'claude') return CLAUDE_MODEL;
+  return 'canned';
 }
 
-export async function generate(role: Role, context: string): Promise<string> {
+async function generateGemini(role: Role, context: string): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey: GEMINI_KEY! });
+  const resp = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: context,
+    config: { systemInstruction: SYSTEM[role], maxOutputTokens: MAX_OUTPUT_TOKENS },
+  });
+  return (resp.text ?? '').trim();
+}
+
+async function generateClaude(role: Role, context: string): Promise<string> {
   const client = new Anthropic(); // reads ANTHROPIC_API_KEY
   const resp = await client.messages.create({
-    model: MODEL,
-    max_tokens: 2048,
+    model: CLAUDE_MODEL,
+    max_tokens: MAX_OUTPUT_TOKENS,
     system: SYSTEM[role],
     messages: [{ role: 'user', content: context }],
   });
@@ -43,4 +74,11 @@ export async function generate(role: Role, context: string): Promise<string> {
     .map((b) => b.text)
     .join('\n')
     .trim();
+}
+
+export async function generate(role: Role, context: string): Promise<string> {
+  const p = provider();
+  if (p === 'gemini') return generateGemini(role, context);
+  if (p === 'claude') return generateClaude(role, context);
+  throw new Error('no LLM provider configured (set GEMINI_API_KEY or ANTHROPIC_API_KEY)');
 }

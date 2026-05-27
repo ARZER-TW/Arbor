@@ -17,7 +17,7 @@
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
 import { ArborClient } from '../src/index.js';
-import { generate, llmAvailable, modelName, type Role } from './llm.js';
+import { generate, llmAvailable, modelName, provider, type Role } from './llm.js';
 
 const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
@@ -61,7 +61,7 @@ async function main() {
     reporter: reporter.toSuiAddress(),
   };
   console.log('agents:', addr);
-  console.log('content:', llmAvailable() ? `Claude (${modelName()})` : 'canned fallback');
+  console.log('content:', llmAvailable() ? `${provider()} (${modelName()})` : 'canned fallback');
 
   // Fund all three agents in one transaction from the funder.
   const fund = new Transaction();
