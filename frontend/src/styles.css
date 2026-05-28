@@ -28,7 +28,9 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .app { max-width: 1200px; margin: 0 auto; padding: 20px; }
 
 .header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.brand-row { display: flex; align-items: center; gap: 10px; }
 .brand h1 { margin: 0; font-size: 22px; letter-spacing: -0.5px; }
+.logo { display: block; border-radius: 9px; }
 .brand .tag { color: var(--muted); font-size: 13px; }
 
 .repobar { display: flex; gap: 8px; margin: 18px 0; }
@@ -85,6 +87,20 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .pane .meta { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); }
 .pane pre { margin: 0; padding: 12px; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; max-height: 60vh; overflow: auto; }
 .single pre { max-height: 64vh; }
+
+.pane .md { padding: 14px 16px; max-height: 60vh; overflow: auto; font-size: 13px; line-height: 1.6; }
+.single .md { max-height: 66vh; }
+.md > :first-child { margin-top: 0; }
+.md h1 { font-size: 17px; margin: 0 0 12px; letter-spacing: -0.3px; }
+.md h2 { font-size: 14px; margin: 16px 0 6px; color: var(--text); }
+.md h3 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); }
+.md p { margin: 8px 0; }
+.md ul, .md ol { margin: 8px 0; padding-left: 20px; }
+.md li { margin: 4px 0; }
+.md strong { color: #fff; }
+.md code { background: var(--bg); padding: 1px 6px; border-radius: 5px; font-family: ui-monospace, monospace; font-size: 12px; }
+.md a { color: var(--fork); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .kv { color: var(--muted); }
 .kv b { color: var(--text); font-weight: 600; }
 .err { color: #f85149; }

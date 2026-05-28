@@ -9,6 +9,8 @@ import {
 } from '@mysten/dapp-kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Transaction } from '@mysten/sui/transactions';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import '@mysten/dapp-kit/dist/index.css';
 import './styles.css';
 import {
@@ -43,6 +45,8 @@ const KIND_COLOR: Record<EntryKind, string> = {
 
 const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
 const fmtTime = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : '');
+const renderMarkdown = (text: string): string =>
+  DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
 
 type Content =
   | { status: 'ok'; node: NodeView; text: string }
@@ -124,7 +128,10 @@ function Viewer() {
     <div className="app">
       <div className="header">
         <div className="brand">
-          <h1>Arbor</h1>
+          <div className="brand-row">
+            <img className="logo" src="/logo.svg" alt="Arbor" width={34} height={34} />
+            <h1>Arbor</h1>
+          </div>
           <span className="tag">Git for AI agents — verifiable artifact provenance on Walrus + Sui</span>
         </div>
         <ConnectButton />
@@ -277,7 +284,7 @@ function Pane({ content }: { content?: Content }) {
         <div className="kv">by {short(node.creator)} · {fmtTime(node.createdAtMs)}</div>
         <div className="kv">node {short(node.id)} · parents {node.parents.length}</div>
       </div>
-      <pre>{text}</pre>
+      <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
     </div>
   );
 }

@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Arbor">
+  <rect width="512" height="512" rx="104" fill="#0d1117"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="24">
+    <!-- trunk -->
+    <path d="M188 416 L188 96" stroke="#222c3a"/>
+    <!-- lower-right branch (fork) -->
+    <path d="M188 300 C188 250 332 256 332 200" stroke="#222c3a"/>
+    <!-- upper-right branch -->
+    <path d="M188 196 C188 150 320 156 332 104" stroke="#222c3a"/>
+  </g>
+  <g>
+    <!-- root (create) -->
+    <circle cx="188" cy="416" r="30" fill="#a371f7"/>
+    <!-- commit -->
+    <circle cx="188" cy="300" r="30" fill="#4cc38a"/>
+    <!-- fork tip -->
+    <circle cx="332" cy="200" r="30" fill="#58a6ff"/>
+    <!-- commit -->
+    <circle cx="188" cy="196" r="30" fill="#4cc38a"/>
+    <!-- branch tip (merge) -->
+    <circle cx="332" cy="104" r="30" fill="#db61a2"/>
+    <!-- trunk head -->
+    <circle cx="188" cy="96" r="30" fill="#4cc38a"/>
+  </g>
+</svg>
