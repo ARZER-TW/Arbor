@@ -36,10 +36,18 @@ const CANNED: Record<Role, string> = {
 
 async function produce(role: Role, context: string): Promise<string> {
   if (llmAvailable()) {
-    try {
-      return await generate(role, context);
-    } catch (e) {
-      console.warn(`  LLM ${role} failed, using canned content:`, String(e));
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await generate(role, context);
+      } catch (e) {
+        const transient = /\b(503|429)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(String(e));
+        if (attempt < 2 && transient) {
+          await new Promise((r) => setTimeout(r, 4000));
+          continue;
+        }
+        console.warn(`  LLM ${role} failed, using canned content:`, String(e));
+        break;
+      }
     }
   }
   return CANNED[role];

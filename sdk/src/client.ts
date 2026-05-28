@@ -303,11 +303,12 @@ export class ArborClient {
    */
   async getTimeline(repoId: string): Promise<TimelineEvent[]> {
     const out: TimelineEvent[] = [];
+    // Descending so a freshly-created repo's events are in the newest page.
     for (const module of [REPO_MODULE, MERGE_MODULE]) {
       const page = await this.client.queryEvents({
         query: { MoveModule: { package: this.packageId, module } },
-        order: 'ascending',
-        limit: 200,
+        order: 'descending',
+        limit: 1000,
       });
       for (const e of page.data) {
         const data = (e.parsedJson ?? {}) as Record<string, unknown>;

@@ -8,8 +8,9 @@ import { downloadBlob } from './walrusClient';
 
 export const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
+// Multi-agent DeFi risk review produced by real Gemini agents (Scenario A).
 export const DEMO_REPO =
-  '0x0ee348ef290038d45424cb4921cd84acb14080c3ddb4d8f9701ecd518bfb5808';
+  '0xf9d1214a9759bf96c4b64150ac8bf6d5b77ac9fc022250036336dc1d2104db73';
 // A repo left with a pending merge request, to exercise the approve / execute flow.
 export const PENDING_REPO =
   '0x63cb18e2af9e4c29aea917023996b04622f0da59effa6f70fe00c053530637ab';
@@ -47,10 +48,13 @@ export interface NodeView {
 
 export async function readTimeline(repoId: string): Promise<TimelineEntry[]> {
   const out: TimelineEntry[] = [];
+  // Descending so a freshly-created repo's events are always in the newest page
+  // (ascending returns the oldest events and truncates recent repos as the
+  // package's event log grows).
   for (const module of ['repository', 'merge']) {
     const page = await readClient.queryEvents({
       query: { MoveModule: { package: PACKAGE_ID, module } },
-      order: 'ascending',
+      order: 'descending',
       limit: 1000,
     });
     for (const e of page.data) {
