@@ -18,6 +18,7 @@ import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
 import { ArborClient } from '../src/index.js';
 import { generate, llmAvailable, modelName, provider, type Role } from './llm.js';
+import { agentMemory, memoryNamespace } from './memwal.js';
 
 const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
@@ -71,6 +72,13 @@ async function main() {
   console.log('agents:', addr);
   console.log('content:', llmAvailable() ? `${provider()} (${modelName()})` : 'canned fallback');
 
+  // Agent working memory (MemWal) — complements Arbor: MemWal holds recalled
+  // scratch memory, Arbor holds the versioned artifacts. No-op without creds.
+  const mem = agentMemory();
+  console.log('memory:', mem.enabled ? `MemWal (ns=${memoryNamespace()})` : 'off');
+  const withMemory = (base: string, recalled: string) =>
+    recalled ? `Relevant prior memory:\n${recalled}\n\n${base}` : base;
+
   // Fund all three agents in one transaction from the funder.
   const fund = new Transaction();
   const coins = fund.splitCoins(fund.gas, [
@@ -101,32 +109,43 @@ async function main() {
   await arbor.client.waitForTransaction({ digest: repo.digest });
   console.log('\nrepo:', repo.repoId);
 
-  // Hunter scans and commits the surface scan to main.
-  const hunterText = await produce('hunter', `Target protocol: ${TARGET}. Produce your surface scan.`);
+  // Hunter recalls prior context (MemWal), scans, commits to main (Arbor), remembers a note.
+  const hunterMem = await mem.recall(`known risks in lending protocols like ${TARGET}`);
+  const hunterText = await produce('hunter', withMemory(`Target protocol: ${TARGET}. Produce your surface scan.`, hunterMem));
   const scan = await arbor.commitContent(
     { repoId: repo.repoId, branch: 'main', content: hunterText, kind: 'report', message: 'surface scan', write: WRITE },
     hunter,
   );
   await arbor.client.waitForTransaction({ digest: scan.digest });
+  await mem.remember(`Hunter surface scan of ${TARGET}:\n${hunterText}`);
   console.log('Hunter   commit main    ->', scan.nodeId);
 
   // Analyst forks `analyst`, builds on Hunter's scan, and commits the deep dive.
   const fk = await arbor.fork({ repoId: repo.repoId, source: 'main', newBranch: 'analyst' }, analyst);
   await arbor.client.waitForTransaction({ digest: fk.digest });
-  const analystText = await produce('analyst', `Surface scan from Hunter:\n\n${hunterText}\n\nProduce your deep analysis.`);
+  const analystMem = await mem.recall('severity rationale for DeFi lending risks');
+  const analystText = await produce(
+    'analyst',
+    withMemory(`Surface scan from Hunter:\n\n${hunterText}\n\nProduce your deep analysis.`, analystMem),
+  );
   const ana = await arbor.commitContent(
     { repoId: repo.repoId, branch: 'analyst', content: analystText, kind: 'analysis', message: 'deep dive', write: WRITE },
     analyst,
   );
   await arbor.client.waitForTransaction({ digest: ana.digest });
+  await mem.remember(`Analyst deep analysis of ${TARGET}:\n${analystText}`);
   console.log('Analyst  commit analyst ->', ana.nodeId);
 
   // Reporter consolidates both into the final report and proposes the merge (multi-parent).
   const mainTip = await arbor.getBranchTip(repo.repoId, 'main');
   const analystTip = await arbor.getBranchTip(repo.repoId, 'analyst');
+  const reporterMem = await mem.recall(`final risk report style for ${TARGET}`);
   const reporterText = await produce(
     'reporter',
-    `Surface scan:\n${hunterText}\n\nDeep analysis:\n${analystText}\n\nProduce the final consolidated risk report.`,
+    withMemory(
+      `Surface scan:\n${hunterText}\n\nDeep analysis:\n${analystText}\n\nProduce the final consolidated risk report.`,
+      reporterMem,
+    ),
   );
   const blobId = await arbor.walrus.write(new TextEncoder().encode(reporterText), WRITE);
   const mr = await arbor.proposeMerge(
