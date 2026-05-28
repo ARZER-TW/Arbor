@@ -5,13 +5,15 @@
  * prior context from MemWal before working and remembers a note afterwards,
  * while committing its actual deliverable to Arbor.
  *
- * Env-gated: set MEMWAL_KEY (Ed25519 delegate key, hex) and MEMWAL_ACCOUNT_ID
- * (Walrus Memory account object id) to enable. Without them this is a no-op, so
- * the demo still runs. serverUrl defaults to the public relayer.
+ * Env-gated: set MEMWAL_PRIVATE_KEY (Ed25519 delegate key, hex — the name the
+ * MemWal playground emits) and MEMWAL_ACCOUNT_ID (Walrus Memory account object
+ * id) to enable. Without them this is a no-op, so the demo still runs.
+ * serverUrl defaults to the public relayer; MEMWAL_KEY is honoured as a legacy
+ * alias for the private key env var.
  */
 import { MemWal } from '@mysten-incubation/memwal';
 
-const KEY = process.env.MEMWAL_KEY;
+const KEY = process.env.MEMWAL_PRIVATE_KEY ?? process.env.MEMWAL_KEY;
 const ACCOUNT_ID = process.env.MEMWAL_ACCOUNT_ID;
 const SERVER_URL = process.env.MEMWAL_SERVER_URL; // optional; SDK defaults to https://relayer.memwal.ai
 const NAMESPACE = process.env.MEMWAL_NAMESPACE ?? 'arbor-demo';

@@ -8,9 +8,10 @@ import { downloadBlob } from './walrusClient';
 
 export const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
-// Multi-agent DeFi risk review produced by real Gemini agents (Scenario A).
+// Multi-agent DeFi risk review produced by real Gemini agents with real MemWal
+// working memory (Scenario A).
 export const DEMO_REPO =
-  '0xf9d1214a9759bf96c4b64150ac8bf6d5b77ac9fc022250036336dc1d2104db73';
+  '0x56776e06ae8a0fa7dd046d11e3a4538192084422846d2eda68832a98656bba25';
 // A repo left with a pending merge request, to exercise the approve / execute flow.
 export const PENDING_REPO =
   '0x63cb18e2af9e4c29aea917023996b04622f0da59effa6f70fe00c053530637ab';
