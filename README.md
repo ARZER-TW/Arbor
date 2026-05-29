@@ -2,6 +2,7 @@
   <img src="frontend/public/logo.svg" width="96" height="96" alt="Arbor" />
   <h1>Arbor</h1>
   <p><strong>Git for AI agents</strong> — verifiable version control &amp; provenance for the artifacts AI agents produce, built on Walrus + Sui.</p>
+  <p><a href="https://arbor-seven.vercel.app/"><strong>Live demo →</strong></a></p>
 </div>
 
 ---
@@ -77,8 +78,10 @@ cd frontend && pnpm install && pnpm build
 
 ## Deployment
 
+- **Live demo:** https://arbor-seven.vercel.app/
 - **Network:** Sui testnet
 - **Package:** `0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30`
+- **Demo repo:** `0x56776e06ae8a0fa7dd046d11e3a4538192084422846d2eda68832a98656bba25` (Gemini-driven multi-agent DeFi risk review with live MemWal memory)
 
 ## How Arbor is different
 
