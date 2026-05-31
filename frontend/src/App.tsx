@@ -23,7 +23,6 @@ import {
   readMergeRequests,
   readNodeText,
   readTimeline,
-  type EntryKind,
   type MergeRequestView,
   type NodeView,
   type TimelineEntry,
@@ -34,14 +33,6 @@ const { networkConfig } = createNetworkConfig({
   testnet: { url: 'https://fullnode.testnet.sui.io:443', network: 'testnet' },
   mainnet: { url: 'https://fullnode.mainnet.sui.io:443', network: 'mainnet' },
 });
-
-const KIND_COLOR: Record<EntryKind, string> = {
-  create: 'var(--create)',
-  commit: 'var(--commit)',
-  fork: 'var(--fork)',
-  propose: 'var(--propose)',
-  merge: 'var(--merge)',
-};
 
 const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
 const fmtTime = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : '');
@@ -126,6 +117,7 @@ function Viewer() {
 
   return (
     <div className="app">
+      <div className="grain" aria-hidden="true" />
       <div className="header">
         <div className="brand">
           <div className="brand-row">
@@ -214,18 +206,16 @@ function Viewer() {
               return (
                 <li
                   key={`${e.txDigest}-${i}`}
-                  className={`entry${slot >= 0 ? ' picked' : ''}`}
+                  className={`entry kind-${e.kind}${slot >= 0 ? ' picked' : ''}`}
                   onClick={() => e.nodeId && togglePick(e.nodeId)}
                 >
                   <div className="rail">
-                    <span className="dot" style={{ background: KIND_COLOR[e.kind] }} />
+                    <span className="dot" />
                     {i < timeline.length - 1 && <span className="line" />}
                   </div>
                   <div>
                     <div className="row1">
-                      <span className="badge" style={{ background: KIND_COLOR[e.kind] }}>
-                        {e.kind}
-                      </span>
+                      <span className="badge">{e.kind}</span>
                       {e.branch && <span className="chip">{e.branch}</span>}
                       {e.kind === 'fork' && e.source && <span className="chip">from {e.source}</span>}
                       {slot >= 0 && <span className="pickmark">{slot === 0 ? 'A' : 'B'}</span>}
