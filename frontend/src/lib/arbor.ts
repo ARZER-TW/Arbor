@@ -3,8 +3,10 @@
 // the connected wallet to sign.
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
-import { blobIdFromInt } from '@mysten/walrus';
-import { downloadBlob } from './walrusClient';
+import { blobIdFromInt, blobIdToInt } from '@mysten/walrus';
+import { downloadBlob, uploadBlob } from './walrusClient';
+
+const SUI_CLOCK = '0x6';
 
 export const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
@@ -206,4 +208,83 @@ export function buildExecuteMergeTx(repoId: string, mergeRequestId: string): Tra
     arguments: [tx.object(repoId), tx.object(mergeRequestId)],
   });
   return tx;
+}
+
+// === write path (wallet-signed): a human can create their own repo + commit ===
+
+export interface CreateRepoInput {
+  name: string;
+  rootBlobId: bigint; // 0n when the root has no content blob
+  rootKind: string;
+  rootMessage: string;
+  publicRead: boolean;
+  writers: string[];
+  approvalThreshold: bigint;
+}
+
+export function buildCreateRepositoryTx(input: CreateRepoInput): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${PACKAGE_ID}::repository::create_repository`,
+    arguments: [
+      tx.pure.string(input.name),
+      tx.pure.u256(input.rootBlobId),
+      tx.pure.string(input.rootKind),
+      tx.pure.string(input.rootMessage),
+      tx.pure.bool(input.publicRead),
+      tx.pure.vector('address', input.writers),
+      tx.pure.u64(input.approvalThreshold),
+      tx.object(SUI_CLOCK),
+    ],
+  });
+  return tx;
+}
+
+export interface CommitInput {
+  repoId: string;
+  branch: string;
+  blobId: bigint;
+  kind: string;
+  message: string;
+}
+
+export function buildCommitTx(input: CommitInput): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${PACKAGE_ID}::repository::commit`,
+    arguments: [
+      tx.object(input.repoId),
+      tx.pure.string(input.branch),
+      tx.pure.u256(input.blobId),
+      tx.pure.string(input.kind),
+      tx.pure.string(input.message),
+      tx.pure.option('u256', null),
+      tx.object(SUI_CLOCK),
+    ],
+  });
+  return tx;
+}
+
+// Upload text content to Walrus (permanent) and return the u256 blob id used on-chain.
+export async function uploadContent(
+  text: string,
+): Promise<{ blobIdInt: bigint; blobId: string; size: number }> {
+  const res = await uploadBlob(new TextEncoder().encode(text), { epochs: 30, permanent: true });
+  return { blobIdInt: blobIdToInt(res.blobId), blobId: res.blobId, size: res.size };
+}
+
+// Pull the new repository object id out of a create-repository transaction.
+export async function repoIdFromTx(digest: string): Promise<string | null> {
+  const tx = await readClient.getTransactionBlock({ digest, options: { showEvents: true } });
+  const ev = (tx.events ?? []).find((e) => e.type.endsWith('::RepositoryCreated'));
+  const d = (ev?.parsedJson ?? {}) as Record<string, unknown>;
+  return (d.repo_id as string) ?? null;
+}
+
+// Pull the new node id out of a commit transaction (to select it after committing).
+export async function nodeIdFromTx(digest: string): Promise<string | null> {
+  const tx = await readClient.getTransactionBlock({ digest, options: { showEvents: true } });
+  const ev = (tx.events ?? []).find((e) => e.type.endsWith('::Committed'));
+  const d = (ev?.parsedJson ?? {}) as Record<string, unknown>;
+  return (d.node_id as string) ?? null;
 }

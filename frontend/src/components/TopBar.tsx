@@ -20,6 +20,8 @@ export function TopBar({
   onCommand,
   onVerifyAll,
   verifying,
+  onCompose,
+  onHow,
 }: {
   model: RepoModel | null;
   nav: NavId;
@@ -28,6 +30,8 @@ export function TopBar({
   onCommand: () => void;
   onVerifyAll: () => void;
   verifying: boolean;
+  onCompose: () => void;
+  onHow: () => void;
 }) {
   const onMain = nav === 'artifacts' || nav === 'lineage';
   const crumb = NAV_CRUMB[nav];
@@ -66,6 +70,14 @@ export function TopBar({
             ))}
           </div>
         )}
+
+        <button className="tb-icon" onClick={onHow} title="How Arbor works" aria-label="How Arbor works">
+          <Icon name="info" size={15} color="var(--fg-2)" />
+        </button>
+
+        <Button variant="secondary" size="sm" icon="plus" onClick={onCompose}>
+          New
+        </Button>
 
         <Button
           variant="primary"

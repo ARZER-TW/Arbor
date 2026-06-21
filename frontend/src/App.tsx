@@ -13,8 +13,13 @@ import {
   DEMO_REPO,
   PENDING_REPO,
   buildApproveTx,
+  buildCommitTx,
+  buildCreateRepositoryTx,
   buildExecuteMergeTx,
+  nodeIdFromTx,
   readClient,
+  repoIdFromTx,
+  uploadContent,
 } from './lib/arbor';
 import {
   buildRepoModel,
@@ -31,6 +36,8 @@ import { AgentsView } from './components/AgentsView';
 import { AnchorsView } from './components/AnchorsView';
 import { KeysView } from './components/KeysView';
 import { CommandPalette, type CommandResult } from './components/CommandPalette';
+import { ComposeModal } from './components/ComposeModal';
+import { HowItWorks } from './components/HowItWorks';
 import { ConnectGate } from './components/ConnectGate';
 import type { NavId, ViewMode } from './components/nav';
 
@@ -82,6 +89,11 @@ function Dashboard() {
   const [verifyAllResult, setVerifyAllResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
+
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
+  const [writeBusy, setWriteBusy] = useState(false);
+  const [writeErr, setWriteErr] = useState<string | null>(null);
 
   const load = useCallback(async (id: string, keepSelection?: string | null) => {
     setLoading(true);
@@ -184,6 +196,70 @@ function Dashboard() {
     if (model?.openMr) void act(() => buildExecuteMergeTx(repoId, model.openMr!.id));
   }, [act, model, repoId]);
 
+  const onCreate = useCallback(
+    async (name: string, content: string, message: string) => {
+      if (!account) return;
+      setWriteBusy(true);
+      setWriteErr(null);
+      try {
+        let rootBlobId = 0n;
+        if (content.trim()) rootBlobId = (await uploadContent(content)).blobIdInt;
+        const tx = buildCreateRepositoryTx({
+          name,
+          rootBlobId,
+          rootKind: 'report',
+          rootMessage: message,
+          publicRead: true,
+          writers: [account.address],
+          approvalThreshold: 1n,
+        });
+        const res = await signAndExecute({ transaction: tx });
+        await readClient.waitForTransaction({ digest: res.digest });
+        const newId = await repoIdFromTx(res.digest);
+        if (newId) {
+          setComposeOpen(false);
+          setRepoId(newId);
+        } else {
+          // Tx committed but the id couldn't be resolved — surface the digest
+          // rather than silently bouncing back to the previously-viewed repo.
+          setWriteErr(`Repository created in tx ${res.digest}, but its id could not be resolved.`);
+        }
+      } catch (e) {
+        setWriteErr(String(e));
+      } finally {
+        setWriteBusy(false);
+      }
+    },
+    [account, signAndExecute, repoId],
+  );
+
+  const onCommitArtifact = useCallback(
+    async (branch: string, content: string, message: string) => {
+      if (!account) return;
+      if (!content.trim()) {
+        setWriteErr('A commit needs artifact content.');
+        return;
+      }
+      setWriteBusy(true);
+      setWriteErr(null);
+      try {
+        const blobId = (await uploadContent(content)).blobIdInt;
+        const tx = buildCommitTx({ repoId, branch, blobId, kind: 'report', message });
+        const res = await signAndExecute({ transaction: tx });
+        await readClient.waitForTransaction({ digest: res.digest });
+        const newNode = await nodeIdFromTx(res.digest);
+        setComposeOpen(false);
+        setActiveNav('artifacts');
+        await load(repoId, newNode ?? selectedId);
+      } catch (e) {
+        setWriteErr(String(e));
+      } finally {
+        setWriteBusy(false);
+      }
+    },
+    [account, signAndExecute, load, repoId, selectedId],
+  );
+
   const jumpToArtifact = useCallback((id: string) => {
     setActiveNav('artifacts');
     setSelectedId(id);
@@ -232,6 +308,11 @@ function Dashboard() {
           onCommand={() => setCmdOpen(true)}
           onVerifyAll={onVerifyAll}
           verifying={verifyingAll}
+          onCompose={() => {
+            setWriteErr(null);
+            setComposeOpen(true);
+          }}
+          onHow={() => setHowOpen(true)}
         />
         <div className="work">
           <div className={`canvas ${showDetail ? '' : 'full'}`}>
@@ -317,6 +398,19 @@ function Dashboard() {
         </div>
       </div>
       <CommandPalette model={model} open={cmdOpen} onClose={() => setCmdOpen(false)} onSelect={onCmd} />
+      <ComposeModal
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        account={account?.address ?? null}
+        repoName={model?.repo ?? 'repository'}
+        branches={model?.branches.map((b) => b.name) ?? ['main']}
+        canCommit={canAct}
+        busy={writeBusy}
+        error={writeErr}
+        onCreate={onCreate}
+        onCommit={onCommitArtifact}
+      />
+      <HowItWorks open={howOpen} onClose={() => setHowOpen(false)} />
     </div>
   );
 }

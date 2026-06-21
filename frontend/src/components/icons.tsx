@@ -149,6 +149,20 @@ const PATHS: Record<string, ReactNode> = {
       <path d="m6 6 12 12" />
     </>
   ),
+  plus: (
+    <>
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </>
+  ),
+  'file-plus': (
+    <>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M9 15h6" />
+      <path d="M12 18v-6" />
+    </>
+  ),
   'x-circle': (
     <>
       <circle cx="12" cy="12" r="10" />
