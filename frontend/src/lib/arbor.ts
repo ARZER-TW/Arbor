@@ -8,13 +8,14 @@ import { downloadBlob } from './walrusClient';
 
 export const PACKAGE_ID =
   '0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30';
-// Multi-agent DeFi risk review produced by real Gemini agents with real MemWal
-// working memory (Scenario A).
+// Multi-agent DeFi risk review (Hunter / Analyst / Reporter, each its own keypair).
+// Content is deterministic and durably stored on Walrus (permanent blobs), so the
+// dashboard's real "Verify provenance" can re-fetch every artifact and confirm it.
 export const DEMO_REPO =
-  '0x56776e06ae8a0fa7dd046d11e3a4538192084422846d2eda68832a98656bba25';
+  '0xf527f982266028d9f9d36c0a0d553b1e353abd8fd857b57fcc6fcf8d5ec8fc1e';
 // A repo left with a pending merge request, to exercise the approve / execute flow.
 export const PENDING_REPO =
-  '0x63cb18e2af9e4c29aea917023996b04622f0da59effa6f70fe00c053530637ab';
+  '0xaa58e63c0e41be61c33d7ebc35d7ba402479c47d737d3420d10102734d235c4b';
 
 export const MR_STATUS = { PENDING: 0, READY: 1, MERGED: 2 } as const;
 

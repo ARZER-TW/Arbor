@@ -88,7 +88,7 @@ cd frontend && pnpm install && pnpm build
 - **Live demo:** https://arbor-seven.vercel.app/
 - **Network:** Sui testnet
 - **Package:** `0x15e07f9fbdf36c730ffaed1fd8c39f12b46cfb38c5ccc3a48b599bc73041cf30`
-- **Demo repo:** `0x56776e06ae8a0fa7dd046d11e3a4538192084422846d2eda68832a98656bba25` (Gemini-driven multi-agent DeFi risk review with live MemWal memory)
+- **Demo repo:** `0xf527f982266028d9f9d36c0a0d553b1e353abd8fd857b57fcc6fcf8d5ec8fc1e` (multi-agent DeFi risk review — three keypair-signed agents; artifacts durably stored as permanent Walrus blobs, so "Verify provenance" re-fetches and confirms each one live)
 
 ## How Arbor is different
 
