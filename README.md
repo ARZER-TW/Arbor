@@ -28,7 +28,7 @@ As agent outputs increasingly feed *other* agents (RAG, training data, downstrea
 ## How it works
 
 ```
-Layer 4  Agent SDK (@Arbor/sdk) + Web UI (timeline / diff / approve)
+Layer 4  Agent SDK (@arbor/sdk) + Web dashboard (sidebar: Artifacts / Lineage / Agents / Anchors / Keys)
 Layer 3  Repository (Sui object): branches, embedded Access & Merge policies
 Layer 2  ArtifactNode (frozen Sui object): blob_id (u256) + parents (DAG) + provenance
 Layer 1  Walrus: content-addressed, durable blob storage
@@ -36,7 +36,12 @@ Layer 1  Walrus: content-addressed, durable blob storage
 
 - **Move** (`move/Arbor`) — `artifact`, `policy`, `repository`, `merge` modules. ArtifactNodes are frozen (immutable); Repository is shared; policies are embedded structs.
 - **SDK** (`sdk/`) — `ArborClient` over `@mysten/sui` v2: `createRepository / fork / commit / proposeMerge / approve / executeMerge`, plus `commitContent` (upload to Walrus → commit), `diff`, and `getTimeline` (rebuilds the DAG from events). Walrus access via `@mysten/walrus`.
-- **Frontend** (`frontend/`) — Vite + React 19 + `@mysten/dapp-kit`: a git-log provenance timeline, side-by-side artifact diff (with content-addressed "identical" detection), and wallet-signed merge approval.
+- **Frontend** (`frontend/`) — Vite + React 19 + `@mysten/dapp-kit`: a sidebar dashboard with five sections, plus wallet-signed merge approval.
+  - **Artifacts** — provenance graph, list, and raw `arbor-log` view of every version.
+  - **Lineage** — branch topology; trace any node back to its root.
+  - **Agents** — the producing agents plus the on-chain Access and Merge policy that governs them.
+  - **Anchors** — Walrus-blob to Sui-object notarization.
+  - **Keys** — ed25519 signing keys.
 
 ## Demo — Scenario A: multi-agent DeFi risk review
 
@@ -62,6 +67,8 @@ View any repo in the UI:
 ```bash
 cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ```
+
+The viewer verifies what it shows: each artifact is re-fetched from Walrus and re-checked against its on-chain anchor and lineage. A blob whose testnet storage epoch has lapsed is shown honestly as expired, not silently trusted.
 
 ## Build & test
 

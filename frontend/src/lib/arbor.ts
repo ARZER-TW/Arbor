@@ -161,6 +161,34 @@ export async function readMergeRequests(repoId: string): Promise<MergeRequestVie
   return out;
 }
 
+export interface RepoPolicy {
+  name: string;
+  owner: string;
+  root: string;
+  writers: string[];
+  approvalThreshold: number;
+  publicRead: boolean;
+  branchCount: number;
+}
+
+export async function readRepoPolicy(repoId: string): Promise<RepoPolicy> {
+  const obj = await readClient.getObject({ id: repoId, options: { showContent: true } });
+  const c = obj.data?.content;
+  if (!c || c.dataType !== 'moveObject') throw new Error(`repository ${repoId} not found`);
+  const f = c.fields as Record<string, any>;
+  const access = f.access?.fields ?? {};
+  const writers = (access.writers?.fields?.contents ?? access.writers?.contents ?? []) as string[];
+  return {
+    name: String(f.name ?? ''),
+    owner: String(f.owner ?? ''),
+    root: String(f.root ?? ''),
+    writers,
+    approvalThreshold: Number(f.merge?.fields?.approval_threshold ?? 1),
+    publicRead: Boolean(access.public_read ?? true),
+    branchCount: Number(f.branches?.fields?.size ?? 0),
+  };
+}
+
 export function buildApproveTx(repoId: string, mergeRequestId: string): Transaction {
   const tx = new Transaction();
   tx.moveCall({

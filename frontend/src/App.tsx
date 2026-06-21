@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ConnectButton,
   SuiClientProvider,
   WalletProvider,
   createNetworkConfig,
@@ -8,25 +7,32 @@ import {
   useSignAndExecuteTransaction,
 } from '@mysten/dapp-kit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Transaction } from '@mysten/sui/transactions';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import '@mysten/dapp-kit/dist/index.css';
 import './styles.css';
 import {
   DEMO_REPO,
   PENDING_REPO,
-  MR_STATUS,
   buildApproveTx,
   buildExecuteMergeTx,
   readClient,
-  readMergeRequests,
-  readNodeText,
-  readTimeline,
-  type MergeRequestView,
-  type NodeView,
-  type TimelineEntry,
 } from './lib/arbor';
+import {
+  buildRepoModel,
+  type Commit,
+  type RepoModel,
+} from './lib/model';
+import { verifyArtifact, verifyAll, type VerifyStep, type VerifyResult } from './lib/verify';
+import { Sidebar } from './components/Sidebar';
+import { TopBar } from './components/TopBar';
+import { ProvenanceGraph } from './components/ProvenanceGraph';
+import { DetailPanel } from './components/DetailPanel';
+import { LineageView } from './components/LineageView';
+import { AgentsView } from './components/AgentsView';
+import { AnchorsView } from './components/AnchorsView';
+import { KeysView } from './components/KeysView';
+import { CommandPalette, type CommandResult } from './components/CommandPalette';
+import { ConnectGate } from './components/ConnectGate';
+import type { NavId, ViewMode } from './components/nav';
 
 const queryClient = new QueryClient();
 const { networkConfig } = createNetworkConfig({
@@ -34,249 +40,299 @@ const { networkConfig } = createNetworkConfig({
   mainnet: { url: 'https://fullnode.mainnet.sui.io:443', network: 'mainnet' },
 });
 
-const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
-const fmtTime = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : '');
-const renderMarkdown = (text: string): string =>
-  DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+function headFor(nav: NavId, view: ViewMode, model: RepoModel | null): [string, string] {
+  const n = model?.commits.length ?? 0;
+  const agents = model?.agentList.length ?? 0;
+  switch (nav) {
+    case 'lineage':
+      return ['Lineage', 'branch topology · click a node to trace its chain → root'];
+    case 'agents':
+      return ['Agents', `${agents} producer${agents === 1 ? '' : 's'} · keypair-signed · on-chain access policy`];
+    case 'anchors':
+      return ['Anchors', 'on-chain notarization · Walrus blob → Sui object'];
+    case 'keys':
+      return ['Keys', 'ed25519 signing keys · rotation & revocation'];
+    default:
+      return [
+        view === 'graph' ? 'Provenance graph' : view === 'list' ? 'Artifacts' : 'arbor log',
+        `${n} artifact${n === 1 ? '' : 's'} · newest first`,
+      ];
+  }
+}
 
-type Content =
-  | { status: 'ok'; node: NodeView; text: string }
-  | { status: 'err'; error: string };
-
-function Viewer() {
+function Dashboard() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
-  const [repoInput, setRepoInput] = useState(DEMO_REPO);
   const [repoId, setRepoId] = useState(DEMO_REPO);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [mrs, setMrs] = useState<MergeRequestView[]>([]);
+  const [model, setModel] = useState<RepoModel | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [picks, setPicks] = useState<string[]>([]);
-  const [contents, setContents] = useState<Record<string, Content>>({});
-  const [busy, setBusy] = useState<string | null>(null);
+
+  const [activeNav, setActiveNav] = useState<NavId>('artifacts');
+  const [view, setView] = useState<ViewMode>('graph');
+  const [activeBranch, setActiveBranch] = useState('main');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [cmdOpen, setCmdOpen] = useState(false);
+
+  const [verifyResults, setVerifyResults] = useState<Record<string, VerifyResult>>({});
+  const [verifySteps, setVerifySteps] = useState<VerifyStep[]>([]);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyingAll, setVerifyingAll] = useState(false);
+  const [verifyAllResult, setVerifyAllResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
 
-  async function load(id: string) {
+  const load = useCallback(async (id: string, keepSelection?: string | null) => {
     setLoading(true);
     setError(null);
     try {
-      const [t, m] = await Promise.all([readTimeline(id), readMergeRequests(id)]);
-      setTimeline(t);
-      setMrs(m);
+      const m = await buildRepoModel(id);
+      setModel(m);
+      setActiveBranch((b) => (m.branches.some((x) => x.name === b) ? b : 'main'));
+      setSelectedId((prev) => {
+        const keep = keepSelection ?? prev;
+        if (keep && m.byId[keep]) return keep;
+        const pending = m.commits.find((c) => c.status === 'pending');
+        return pending?.id ?? m.commits[0]?.id ?? null;
+      });
     } catch (e) {
-      setError(String(e));
+      console.error(e);
+      setError("Couldn't reach Sui testnet.");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    setPicks([]);
-    setContents({});
+    setVerifyResults({});
+    setVerifyAllResult(null);
     setActionErr(null);
     void load(repoId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId]);
 
   useEffect(() => {
-    for (const id of picks) {
-      if (contents[id]) continue;
-      readNodeText(id).then(
-        (r) => setContents((c) => ({ ...c, [id]: { status: 'ok', ...r } })),
-        (e) => setContents((c) => ({ ...c, [id]: { status: 'err', error: String(e) } })),
-      );
-    }
-  }, [picks, contents]);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdOpen((o) => !o);
+      }
+      if (e.key === 'Escape') setCmdOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  const togglePick = (id: string) =>
-    setPicks((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id],
-    );
+  const statusFor = useCallback((c: Commit) => c.status, []);
 
-  async function act(mrId: string, tx: Transaction) {
-    setBusy(mrId);
-    setActionErr(null);
+  const selected = selectedId && model ? model.byId[selectedId] ?? null : null;
+
+  const runVerify = useCallback(
+    async (commit: Commit) => {
+      if (!model) return;
+      setVerifyingId(commit.id);
+      setVerifySteps([]);
+      try {
+        const res = await verifyArtifact(commit, model, setVerifySteps);
+        setVerifyResults((p) => ({ ...p, [commit.id]: res }));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setVerifyingId(null);
+      }
+    },
+    [model],
+  );
+
+  const onVerifyAll = useCallback(async () => {
+    if (!model) return;
+    setVerifyingAll(true);
     try {
-      const res = await signAndExecute({ transaction: tx });
-      await readClient.waitForTransaction({ digest: res.digest });
-      await load(repoId);
+      const r = await verifyAll(model, () => {});
+      setVerifyAllResult(`${r.verified}/${r.total} on-chain · ${r.walrusLive} live on Walrus`);
     } catch (e) {
-      setActionErr(String(e));
+      console.error(e);
     } finally {
-      setBusy(null);
+      setVerifyingAll(false);
     }
-  }
+  }, [model]);
 
-  const openMrs = mrs.filter((m) => m.status !== MR_STATUS.MERGED);
+  const act = useCallback(
+    async (build: () => ReturnType<typeof buildApproveTx>) => {
+      if (!model?.openMr) return;
+      setBusy(true);
+      setActionErr(null);
+      try {
+        const tx = build();
+        const res = await signAndExecute({ transaction: tx });
+        await readClient.waitForTransaction({ digest: res.digest });
+        await load(repoId, selectedId);
+      } catch (e) {
+        setActionErr(String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [model, signAndExecute, load, repoId, selectedId],
+  );
 
-  const loadRepo = (id: string) => {
-    setRepoInput(id);
-    setRepoId(id);
-  };
+  const onApprove = useCallback(() => {
+    if (model?.openMr) void act(() => buildApproveTx(repoId, model.openMr!.id));
+  }, [act, model, repoId]);
+  const onExecuteMerge = useCallback(() => {
+    if (model?.openMr) void act(() => buildExecuteMergeTx(repoId, model.openMr!.id));
+  }, [act, model, repoId]);
+
+  const jumpToArtifact = useCallback((id: string) => {
+    setActiveNav('artifacts');
+    setSelectedId(id);
+  }, []);
+
+  const onCmd = useCallback(
+    (r: CommandResult) => {
+      setCmdOpen(false);
+      if (r.kind === 'artifact') jumpToArtifact(r.id);
+      else if (r.id === 'verify-all') void onVerifyAll();
+      else if (r.id === 'goto-merge' && model?.openMr) jumpToArtifact(model.openMr.mergedNode);
+    },
+    [jumpToArtifact, onVerifyAll, model],
+  );
+
+  const toggleRepo = useCallback(() => {
+    setRepoId((r) => (r === DEMO_REPO ? PENDING_REPO : DEMO_REPO));
+  }, []);
+
+  const [headTitle, headSub] = useMemo(
+    () => headFor(activeNav, view, model),
+    [activeNav, view, model],
+  );
+  const showDetail = activeNav === 'artifacts';
+
+  const writers = model?.writers ?? [];
+  const canAct = !!account && writers.includes(account.address);
+  const isProposer = !!account && !!selected?.proposer && account.address === selected.proposer;
 
   return (
     <div className="app">
-      <div className="grain" aria-hidden="true" />
-      <div className="header">
-        <div className="brand">
-          <div className="brand-row">
-            <img className="logo" src="/logo.svg" alt="Arbor" width={34} height={34} />
-            <h1>Arbor</h1>
-          </div>
-          <span className="tag">Git for AI agents — verifiable artifact provenance on Walrus + Sui</span>
-        </div>
-        <ConnectButton />
-      </div>
-
-      <div className="repobar">
-        <input
-          value={repoInput}
-          onChange={(e) => setRepoInput(e.target.value)}
-          spellCheck={false}
-          placeholder="Repository object id (0x…)"
+      <Sidebar
+        model={model}
+        activeNav={activeNav}
+        setActiveNav={setActiveNav}
+        activeBranch={activeBranch}
+        setActiveBranch={setActiveBranch}
+        onToggleRepo={toggleRepo}
+      />
+      <div className="main">
+        <TopBar
+          model={model}
+          nav={activeNav}
+          view={view}
+          setView={setView}
+          onCommand={() => setCmdOpen(true)}
+          onVerifyAll={onVerifyAll}
+          verifying={verifyingAll}
         />
-        <button className="btn" onClick={() => loadRepo(repoInput.trim())}>
-          Load
-        </button>
-        <button className="btn ghost" onClick={() => loadRepo(PENDING_REPO)}>
-          Review demo
-        </button>
-      </div>
-
-      {openMrs.length > 0 && (
-        <section className="panel mr-panel">
-          <h2>Merge requests</h2>
-          {openMrs.map((mr) => {
-            const isProposer = account?.address === mr.proposer;
-            const ready = mr.status === MR_STATUS.READY;
-            return (
-              <div className="mr-row" key={mr.id}>
-                <div className="mr-info">
-                  <span className={`tag-state ${ready ? 'ready' : 'pending'}`}>{ready ? 'ready' : 'pending'}</span>
-                  <span className="chip">→ {mr.targetBranch}</span>
-                  <span className="kv mono">
-                    by {short(mr.proposer)} · {mr.approvals.length} approval{mr.approvals.length === 1 ? '' : 's'}
-                  </span>
+        <div className="work">
+          <div className={`canvas ${showDetail ? '' : 'full'}`}>
+            <div className="canvas-head">
+              <span className="ch-title">{headTitle}</span>
+              <span className="ch-sub">
+                {headSub}
+                {verifyAllResult ? ` · ${verifyAllResult}` : ''}
+              </span>
+            </div>
+            <div className="canvas-scroll">
+              {loading && <div className="view-msg">loading provenance from Sui…</div>}
+              {error && (
+                <div className="view-msg err">
+                  {error}
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void load(repoId, selectedId)}
+                    >
+                      Retry
+                    </button>
+                  </div>
                 </div>
-                <div className="mr-actions">
-                  <button className="btn ghost" onClick={() => togglePick(mr.mergedNode)}>
-                    Review result
-                  </button>
-                  {!ready ? (
-                    <button
-                      className="btn"
-                      disabled={!account || isProposer || busy === mr.id}
-                      onClick={() => act(mr.id, buildApproveTx(repoId, mr.id))}
-                    >
-                      {busy === mr.id ? '…' : 'Approve'}
-                    </button>
-                  ) : (
-                    <button
-                      className="btn"
-                      disabled={!account || busy === mr.id}
-                      onClick={() => act(mr.id, buildExecuteMergeTx(repoId, mr.id))}
-                    >
-                      {busy === mr.id ? '…' : 'Execute merge'}
-                    </button>
+              )}
+              {!loading && !error && model && model.commits.length === 0 && (
+                <div className="view-msg">No Arbor events for this repository.</div>
+              )}
+              {!loading && !error && model && model.commits.length > 0 && (
+                <>
+                  {activeNav === 'artifacts' && (
+                    <ProvenanceGraph
+                      model={model}
+                      view={view}
+                      selectedId={selectedId}
+                      onSelect={setSelectedId}
+                      statusFor={statusFor}
+                    />
                   )}
-                </div>
-                {!ready && !account && <div className="hint">connect a wallet to approve</div>}
-                {!ready && isProposer && (
-                  <div className="hint">proposer can't self-approve — connect a different writer</div>
-                )}
-              </div>
-            );
-          })}
-          {actionErr && <div className="err">{actionErr}</div>}
-        </section>
-      )}
-
-      <div className="grid">
-        <section className="panel">
-          <h2>Provenance timeline</h2>
-          {loading && <div className="hint">loading…</div>}
-          {error && <div className="err">{error}</div>}
-          {!loading && !error && timeline.length === 0 && (
-            <div className="hint">No Arbor events for this repository.</div>
-          )}
-          <ul className="timeline">
-            {timeline.map((e, i) => {
-              const slot = e.nodeId ? picks.indexOf(e.nodeId) : -1;
-              return (
-                <li
-                  key={`${e.txDigest}-${i}`}
-                  className={`entry kind-${e.kind}${slot >= 0 ? ' picked' : ''}`}
-                  onClick={() => e.nodeId && togglePick(e.nodeId)}
-                >
-                  <div className="rail">
-                    <span className="dot" />
-                    {i < timeline.length - 1 && <span className="line" />}
-                  </div>
-                  <div>
-                    <div className="row1">
-                      <span className="badge">{e.kind}</span>
-                      {e.branch && <span className="chip">{e.branch}</span>}
-                      {e.kind === 'fork' && e.source && <span className="chip">from {e.source}</span>}
-                      {slot >= 0 && <span className="pickmark">{slot === 0 ? 'A' : 'B'}</span>}
-                    </div>
-                    <div className="row2 mono">
-                      {e.creator && <>by {short(e.creator)} · </>}
-                      node {short(e.nodeId)} · {fmtTime(e.timestampMs)}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-
-        <section className="panel viewer">
-          <h2>{picks.length === 2 ? 'Diff' : 'Artifact'}</h2>
-          {picks.length === 0 && (
-            <div className="empty">Click a node to view its content. Pick two to diff them.</div>
-          )}
-          {picks.length === 2 && <DiffHead a={contents[picks[0]]} b={contents[picks[1]]} />}
-          <div className={picks.length === 2 ? 'panes' : 'single'}>
-            {picks.map((id) => (
-              <Pane key={id} content={contents[id]} />
-            ))}
+                  {activeNav === 'lineage' && (
+                    <LineageView
+                      model={model}
+                      selectedId={selectedId}
+                      onSelect={setSelectedId}
+                      statusFor={statusFor}
+                    />
+                  )}
+                  {activeNav === 'agents' && <AgentsView model={model} onSelect={jumpToArtifact} />}
+                  {activeNav === 'anchors' && (
+                    <AnchorsView
+                      model={model}
+                      selectedId={selectedId}
+                      onSelect={jumpToArtifact}
+                      statusFor={statusFor}
+                    />
+                  )}
+                  {activeNav === 'keys' && (
+                    <KeysView model={model} account={account?.address ?? null} />
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </section>
+          {showDetail && model && (
+            <DetailPanel
+              model={model}
+              commit={selected}
+              status={selected ? statusFor(selected) : null}
+              verifyResult={selected ? verifyResults[selected.id] ?? null : null}
+              verifySteps={
+                verifyingId && selected && verifyingId === selected.id ? verifySteps : null
+              }
+              verifying={!!selected && verifyingId === selected.id}
+              onVerify={runVerify}
+              onApprove={onApprove}
+              onExecuteMerge={onExecuteMerge}
+              busy={busy}
+              actionErr={actionErr}
+              canAct={canAct}
+              isProposer={isProposer}
+            />
+          )}
+        </div>
       </div>
+      <CommandPalette model={model} open={cmdOpen} onClose={() => setCmdOpen(false)} onSelect={onCmd} />
     </div>
   );
 }
 
-function DiffHead({ a, b }: { a?: Content; b?: Content }) {
-  if (a?.status !== 'ok' || b?.status !== 'ok') return null;
-  const identical = a.node.blobId === b.node.blobId;
-  return (
-    <div className="diffhead">
-      <span className={`tag-state ${identical ? 'same' : 'diff'}`}>
-        {identical ? 'identical (same Walrus blob)' : 'different content'}
-      </span>
-      <span className="kv mono">
-        {identical ? 'content-addressed dedup' : `${short(a.node.id)} vs ${short(b.node.id)}`}
-      </span>
-    </div>
-  );
-}
-
-function Pane({ content }: { content?: Content }) {
-  if (!content) return <div className="pane"><div className="meta">loading…</div></div>;
-  if (content.status === 'err') return <div className="pane"><pre className="err">{content.error}</pre></div>;
-  const { node, text } = content;
-  return (
-    <div className="pane">
-      <div className="meta mono">
-        <div className="kv"><b>{node.kind}</b> · {node.message}</div>
-        <div className="kv">by {short(node.creator)} · {fmtTime(node.createdAtMs)}</div>
-        <div className="kv">node {short(node.id)} · parents {node.parents.length}</div>
-      </div>
-      <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
-    </div>
-  );
+function Root() {
+  const account = useCurrentAccount();
+  const [guest, setGuest] = useState(false);
+  if (!account && !guest) {
+    return (
+      <ConnectGate
+        repoLabel="sui-overflow/defi-protocol-risk-review"
+        onGuest={() => setGuest(true)}
+      />
+    );
+  }
+  return <Dashboard />;
 }
 
 export default function App() {
@@ -284,7 +340,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
         <WalletProvider autoConnect>
-          <Viewer />
+          <Root />
         </WalletProvider>
       </SuiClientProvider>
     </QueryClientProvider>
